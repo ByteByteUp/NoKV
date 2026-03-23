@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-4a2244d7.js";
+            window.path_to_searchindex_js = "searchindex-bd28ccbb.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-5ff2b812.js"></script>
+        <script src="toc-2499ba20.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -210,7 +210,7 @@ calling <code>NoKV.Open(opt)</code>, which now returns <code>(*DB, error)</code>
 <li><code>ValueLogGCReduceBacklog</code>, <code>ValueLogGCSkipBacklog</code></li>
 <li><code>ValueLogGCSampleSizeRatio</code>, <code>ValueLogGCSampleCountRatio</code>,
 <code>ValueLogGCSampleFromHead</code></li>
-<li><code>ValueLogBucketCount</code>, <code>ValueLogHotBucketCount</code>, <code>ValueLogHotKeyThreshold</code></li>
+<li><code>ValueLogBucketCount</code></li>
 </ul>
 </li>
 <li><strong>LSM &amp; compaction</strong>
@@ -222,15 +222,14 @@ calling <code>NoKV.Open(opt)</code>, which now returns <code>(*DB, error)</code>
 </li>
 <li><strong>Caches</strong>
 <ul>
-<li><code>BlockCacheBytes</code>, <code>IndexCacheBytes</code>, <code>BloomCacheBytes</code></li>
+<li><code>BlockCacheBytes</code>, <code>IndexCacheBytes</code></li>
 </ul>
 </li>
 <li><strong>Hot key throttling</strong>
 <ul>
-<li><code>WriteHotKeyLimit</code>, <code>HotWriteBurstThreshold</code>, <code>HotWriteBatchMultiplier</code></li>
-<li><code>HotRingEnabled</code>, <code>HotRingTopK</code>, <code>HotReadPrefetchThreshold</code>, <code>HotReadPrefetchCooldown</code>, decay/window settings</li>
+<li><code>WriteHotKeyLimit</code></li>
+<li><code>HotRingEnabled</code>, <code>HotRingTopK</code>, decay/window settings</li>
 <li><code>HotRingNodeCap</code>, <code>HotRingNodeSampleBits</code>, <code>HotRingRotationInterval</code></li>
-<li><code>ValueLogHotRingOverride</code> + <code>ValueLogHotRing*</code> overrides</li>
 </ul>
 </li>
 <li><strong>WAL watchdog</strong>
@@ -250,7 +249,7 @@ calling <code>NoKV.Open(opt)</code>, which now returns <code>(*DB, error)</code>
 <pre><code class="language-go">opt := NoKV.NewDefaultOptions()
 opt.WorkDir = "./data"
 opt.SyncWrites = true
-opt.ValueThreshold = 1024
+opt.ValueThreshold = 2048
 opt.WriteBatchMaxCount = 128
 db, err := NoKV.Open(opt)
 if err != nil {
@@ -283,7 +282,7 @@ defer db.Close()
 <p>Example (TOML):</p>
 <pre><code class="language-toml">work_dir = "./data"
 mem_table_engine = "art"
-value_threshold = 1024
+value_threshold = 2048
 write_hot_key_limit = 128
 value_log_gc_interval = "30s"
 </code></pre>

@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Getting Started - NoKV Docs</title>
+        <title>Range Filter - NoKV Docs</title>
 
 
         <!-- Custom HTML head -->
@@ -178,109 +178,200 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="getting-started"><a class="header" href="#getting-started">Getting Started</a></h1>
-<p>This guide gets you from zero to a running NoKV cluster (or an embedded DB) in a few minutes.</p>
-<h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
+                        <h1 id="range-filter"><a class="header" href="#range-filter">Range Filter</a></h1>
+<p>NoKV’s range filter is a read-path pruning layer for the LSM tree. It is inspired by the paper <a href="https://people.iiis.tsinghua.edu.cn/~huanchen/publications/grf-sigmod24.pdf">GRF: A Global Range Filter for LSM-Trees with Shape Encoding</a>, but it is deliberately more conservative and much simpler.</p>
+<p>The current implementation is best described as:</p>
 <ul>
-<li>Go 1.26+</li>
-<li>Git</li>
-<li>(Optional) Docker + Docker Compose for containerized runs</li>
+<li>in-memory only</li>
+<li>correctness-first</li>
+<li>advisory pruning, not a source of truth</li>
+<li>table-level pruning plus table-internal block-range pruning</li>
 </ul>
-<h2 id="option-a-local-cluster-recommended-for-dev"><a class="header" href="#option-a-local-cluster-recommended-for-dev">Option A: Local Cluster (recommended for dev)</a></h2>
-<p>This launches a 3-node Raft cluster plus a PD-lite service.</p>
-<pre><code class="language-bash">./scripts/run_local_cluster.sh --config ./raft_config.example.json
-</code></pre>
-<p>The launcher stays attached, streams PD/store logs to the terminal, and also writes them under <code>./artifacts/cluster/</code>.</p>
-<p>Start the Redis-compatible gateway in another shell:</p>
-<pre><code class="language-bash">go run ./cmd/nokv-redis --addr 127.0.0.1:6380 --raft-config raft_config.example.json
-</code></pre>
-<p>Quick smoke test:</p>
-<pre><code class="language-bash">redis-cli -p 6380 ping
-</code></pre>
-<h3 id="inspect-stats"><a class="header" href="#inspect-stats">Inspect stats</a></h3>
-<pre><code class="language-bash">go run ./cmd/nokv stats --workdir ./artifacts/cluster/store-1
-</code></pre>
-<h2 id="option-b-docker-compose"><a class="header" href="#option-b-docker-compose">Option B: Docker Compose</a></h2>
-<p>This runs the cluster and gateway in containers.</p>
-<pre><code class="language-bash">docker compose up --build
-</code></pre>
-<p>Tear down:</p>
-<pre><code class="language-bash">docker compose down -v
-</code></pre>
-<h2 id="embedded-usage-single-process"><a class="header" href="#embedded-usage-single-process">Embedded Usage (single-process)</a></h2>
-<p>Use NoKV as a library when you do not need raftstore.</p>
-<pre><code class="language-go">package main
-
-import (
-	"fmt"
-	"log"
-
-	NoKV "github.com/feichai0017/NoKV"
-)
-
-func main() {
-	opt := NoKV.NewDefaultOptions()
-	opt.WorkDir = "./workdir-demo"
-
-	db, err := NoKV.Open(opt)
-	if err != nil {
-		log.Fatalf("open failed: %v", err)
-	}
-	defer db.Close()
-
-	key := []byte("hello")
-	if err := db.Set(key, []byte("world")); err != nil {
-		log.Fatalf("set failed: %v", err)
-	}
-
-	entry, err := db.Get(key)
-	if err != nil {
-		log.Fatalf("get failed: %v", err)
-	}
-	fmt.Printf("value=%s\n", entry.Value)
-}
-</code></pre>
-<blockquote>
-<p>Note:</p>
+<p>It is designed to reduce unnecessary SST and block probes on point lookups and narrow bounded scans without changing recovery or manifest semantics.</p>
+<hr>
+<h2 id="1-goals"><a class="header" href="#1-goals">1. Goals</a></h2>
+<p>The range filter exists to cut down the part of the read path that answers:</p>
 <ul>
-<li><code>DB.Get</code> returns detached entries (do not call <code>DecrRef</code>).</li>
-<li><code>DB.GetInternalEntry</code> returns borrowed entries and callers must call <code>DecrRef</code> exactly once.</li>
-<li><code>DB.SetWithTTL</code> accepts <code>time.Duration</code> (relative TTL). <code>DB.Set</code>/<code>DB.SetBatch</code>/<code>DB.SetWithTTL</code> reject <code>nil</code> values; use <code>DB.Del</code> or <code>DB.DeleteRange(start,end)</code> for deletes.</li>
-<li><code>DB.NewIterator</code> exposes user-facing entries, while <code>DB.NewInternalIterator</code> scans raw internal keys (<code>cf+user_key+ts</code>).</li>
+<li>which SSTs are even worth probing</li>
+<li>which block range inside a chosen SST is even worth scanning</li>
 </ul>
-</blockquote>
-<h2 id="benchmarks"><a class="header" href="#benchmarks">Benchmarks</a></h2>
-<p>Micro benchmarks:</p>
-<pre><code class="language-bash">go test -bench=. -run=^$ ./...
-</code></pre>
-<p>YCSB (default: NoKV + Badger + Pebble, workloads A-F):</p>
-<pre><code class="language-bash">make bench
-</code></pre>
-<p>Override defaults with env vars:</p>
-<pre><code class="language-bash">YCSB_RECORDS=1000000 YCSB_OPS=1000000 YCSB_CONC=8 make bench
-</code></pre>
-<p>Detailed benchmark methodology and latest result snapshots are maintained in:
-<a href="../benchmark/README.html"><code>benchmark/README.md</code></a>.</p>
-<h2 id="cleanup"><a class="header" href="#cleanup">Cleanup</a></h2>
-<p>If a local run crashes or you want a clean slate:</p>
-<pre><code class="language-bash">make clean
-</code></pre>
-<h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
+<p>This is most valuable for:</p>
 <ul>
-<li><strong>WAL replay errors after crash</strong>: wipe the workdir and restart the cluster.</li>
-<li><strong>Port conflicts</strong>: adjust addresses in <code>raft_config.example.json</code>.</li>
-<li><strong>Slow startup</strong>: reduce <code>YCSB_RECORDS</code> or <code>YCSB_OPS</code> when benchmarking locally.</li>
+<li>point misses</li>
+<li>point hits on non-overlapping levels with many SSTs</li>
+<li>narrow bounded iterators</li>
+</ul>
+<p>It is not intended to change write behavior, compaction policy, or persistence format.</p>
+<hr>
+<h2 id="2-inspiration"><a class="header" href="#2-inspiration">2. Inspiration</a></h2>
+<p>The design direction comes from the SIGMOD 2024 GRF paper:</p>
+<ul>
+<li><a href="https://people.iiis.tsinghua.edu.cn/~huanchen/publications/grf-sigmod24.pdf">GRF: A Global Range Filter for LSM-Trees with Shape Encoding</a></li>
+</ul>
+<p>The paper’s main idea is stronger than what NoKV currently implements:</p>
+<ul>
+<li>a true global range filter</li>
+<li>shape encoding tied to LSM shape and run IDs</li>
+<li>version/snapshot-aware maintenance</li>
+<li>maintenance rules that assume more deterministic compaction behavior</li>
+</ul>
+<p>NoKV does <strong>not</strong> implement full GRF or Shape Encoding. The current design only borrows the high-level idea:</p>
+<ul>
+<li>do pruning before expensive per-run / per-table probes</li>
+<li>keep the pruning layer global enough to matter</li>
+<li>preserve correctness by falling back when uncertain</li>
+</ul>
+<hr>
+<h2 id="3-current-design"><a class="header" href="#3-current-design">3. Current Design</a></h2>
+<h3 id="31-per-level-table-spans"><a class="header" href="#31-per-level-table-spans">3.1 Per-level table spans</a></h3>
+<p>Each <code>levelHandler</code> maintains a <code>rangeFilter</code> built from its current table set:</p>
+<ul>
+<li>source: <a href="../lsm/range_filter.go"><code>lsm/range_filter.go</code></a></li>
+<li>owner: <a href="../lsm/level_handler.go"><code>lsm/level_handler.go</code></a></li>
+</ul>
+<p>Each span records:</p>
+<ul>
+<li>minimum base key (<code>CF + user key</code>)</li>
+<li>maximum base key (<code>CF + user key</code>)</li>
+<li>table pointer</li>
+</ul>
+<p>For non-overlapping levels, the filter supports binary-search candidate lookup. For overlapping or small levels, it falls back to a conservative linear filter.</p>
+<p>The implementation deliberately works on base-key semantics rather than pure
+user-key semantics so different column families are never collapsed into the
+same pruning range.</p>
+<h3 id="32-point-read-pruning"><a class="header" href="#32-point-read-pruning">3.2 Point-read pruning</a></h3>
+<p>Point lookups first prune candidate tables:</p>
+<ul>
+<li><a href="../lsm/level_handler.go"><code>lsm/level_handler.go</code></a></li>
+</ul>
+<p>If a non-overlapping level collapses to a single exact candidate, NoKV uses a thinner point-read path:</p>
+<ul>
+<li><a href="../lsm/table.go"><code>lsm/table.go</code></a></li>
+</ul>
+<p>This avoids the heavier generic iterator-style path for the common “one table could contain this key” case.</p>
+<h3 id="33-bounded-iterator-pruning"><a class="header" href="#33-bounded-iterator-pruning">3.3 Bounded iterator pruning</a></h3>
+<p>Bounded iterators use the same per-level filter to prune whole tables before iterator assembly:</p>
+<ul>
+<li><a href="../lsm/level_handler.go"><code>lsm/level_handler.go</code></a></li>
+</ul>
+<p>Inside a table, NoKV then uses SST block base keys from the decoded table index to shrink the block range that the iterator needs to touch:</p>
+<ul>
+<li><a href="../lsm/table.go"><code>lsm/table.go</code></a></li>
+</ul>
+<p>This is the current “table-internal” stage of the design.</p>
+<h3 id="34-rebuild-behavior"><a class="header" href="#34-rebuild-behavior">3.4 Rebuild behavior</a></h3>
+<p>The filter is rebuilt when a level’s table set changes, for example after:</p>
+<ul>
+<li>sort/install</li>
+<li>compaction replacement</li>
+<li>table deletion</li>
+</ul>
+<p>The filter is not updated on every write. It is rebuilt on table-set changes under the existing level ownership rules.</p>
+<hr>
+<h2 id="4-correctness-model"><a class="header" href="#4-correctness-model">4. Correctness Model</a></h2>
+<p>The range filter is intentionally <strong>not authoritative</strong>.</p>
+<p>Rules:</p>
+<ul>
+<li>if the filter is unsure, fall back</li>
+<li>if the level overlaps, fall back</li>
+<li>if the level is too small to amortize pruning overhead, fall back</li>
+<li>never allow false-negative pruning</li>
+</ul>
+<p>This is why the design is safe to deploy without changing startup, manifest, or recovery behavior.</p>
+<p><code>L0</code> is handled conservatively:</p>
+<ul>
+<li>it remains overlap-first</li>
+<li>it does not use the non-overlapping exact-candidate fast path</li>
+</ul>
+<p>That choice trades peak possible speed for simpler correctness.</p>
+<hr>
+<h2 id="5-what-this-is-not"><a class="header" href="#5-what-this-is-not">5. What This Is Not</a></h2>
+<p>This document describes a practical NoKV optimization, not a claim of full GRF compatibility.</p>
+<p>NoKV currently does <strong>not</strong> implement:</p>
+<ul>
+<li>Shape Encoding</li>
+<li>a persisted global range filter</li>
+<li>run-ID encoding</li>
+<li>snapshot/version-aware filter state</li>
+<li>compaction-policy constraints required by full GRF</li>
+</ul>
+<p>This is deliberate. Those features would couple the filter much more tightly to compaction scheduling, version management, and recovery semantics.</p>
+<hr>
+<h2 id="6-observability"><a class="header" href="#6-observability">6. Observability</a></h2>
+<p>Range-filter behavior is exported through LSM diagnostics and top-level stats:</p>
+<ul>
+<li><a href="../lsm/diagnostics.go"><code>lsm/diagnostics.go</code></a></li>
+<li><a href="../stats.go"><code>stats.go</code></a></li>
+</ul>
+<p>Current counters include:</p>
+<ul>
+<li><code>PointCandidates</code></li>
+<li><code>PointPruned</code></li>
+<li><code>BoundedCandidates</code></li>
+<li><code>BoundedPruned</code></li>
+<li><code>Fallbacks</code></li>
+</ul>
+<p>These counters are useful for deciding whether a workload is actually benefiting from pruning or mostly falling back.</p>
+<hr>
+<h2 id="7-performance-notes"><a class="header" href="#7-performance-notes">7. Performance Notes</a></h2>
+<p>Microbenchmarks show strong gains when candidate-pruning is the dominant cost:</p>
+<ul>
+<li>point misses</li>
+<li>point hits on many-table non-overlapping levels</li>
+<li>narrow bounded scans</li>
+</ul>
+<p>System-level YCSB behavior is more nuanced:</p>
+<ul>
+<li>read-heavy workloads benefit more clearly</li>
+<li>mixed read/write workloads depend more on L0 shape, block loads, flush, and compaction pressure</li>
+</ul>
+<p>This is expected. The range filter optimizes query planning and table/block selection. It does not remove the rest of the read path.</p>
+<hr>
+<h2 id="8-why-nokv-stops-short-of-full-grf"><a class="header" href="#8-why-nokv-stops-short-of-full-grf">8. Why NoKV Stops Short of Full GRF</a></h2>
+<p>Full paper alignment is not the current goal.</p>
+<p>Reasons:</p>
+<ol>
+<li>NoKV’s current compaction and level behavior does not naturally satisfy the paper’s stronger deterministic requirements.</li>
+<li>A persisted global filter would add metadata, rebuild, and recovery complexity.</li>
+<li>The current implementation already captures the most practical early win:
+<ul>
+<li>prune whole tables first</li>
+<li>then prune block ranges inside the chosen table</li>
+</ul>
+</li>
+<li>Current bottlenecks for read-heavy workloads are now more visible in:
+<ul>
+<li><code>L0</code> overlap handling</li>
+<li>block loading</li>
+<li>remaining table probe cost</li>
+</ul>
+</li>
+</ol>
+<p>For NoKV, this simpler design is a better engineering tradeoff today.</p>
+<hr>
+<h2 id="9-source-map"><a class="header" href="#9-source-map">9. Source Map</a></h2>
+<p>Primary implementation files:</p>
+<ul>
+<li><a href="../lsm/range_filter.go"><code>lsm/range_filter.go</code></a></li>
+<li><a href="../lsm/level_handler.go"><code>lsm/level_handler.go</code></a></li>
+<li><a href="../lsm/table.go"><code>lsm/table.go</code></a></li>
+<li><a href="../lsm/diagnostics.go"><code>lsm/diagnostics.go</code></a></li>
+<li><a href="../stats.go"><code>stats.go</code></a></li>
+</ul>
+<p>Related benchmark coverage:</p>
+<ul>
+<li><a href="../lsm/lsm_bench_test.go"><code>lsm/lsm_bench_test.go</code></a></li>
 </ul>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="index.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="cache.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="architecture.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="hotring.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -290,11 +381,11 @@ func main() {
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="index.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="cache.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="architecture.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="hotring.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
