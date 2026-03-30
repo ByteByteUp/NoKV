@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="">
+        <meta name="description" content="NoKV design, architecture, migration, and testing documentation.">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -28,7 +28,7 @@
         <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
-        <link rel="stylesheet" href="docs/custom-7218a61a.css">
+        <link rel="stylesheet" href="docs/custom-5230762e.css">
 
 
         <!-- Provide site root and default themes to javascript -->
@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-bd28ccbb.js";
+            window.path_to_searchindex_js = "searchindex-81b84921.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-2499ba20.js"></script>
+        <script src="toc-af56fb0e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -219,7 +219,7 @@
 <p><strong>Start local peers</strong></p>
 <ul>
 <li>CLI (<code>nokv serve</code>) loads the local peer catalog and calls <code>Store.StartPeer</code> for every region that includes the local store.</li>
-<li>Each <code>peer.Config</code> carries raft parameters, the transport reference, <code>kv.NewEntryApplier</code>, WAL/manifest handles, and Region metadata.</li>
+<li>Each <code>peer.Config</code> carries raft parameters, the transport reference, <code>kv.NewEntryApplier</code>, peer storage, and Region metadata.</li>
 <li><code>StartPeer</code> registers the peer through the peer-set/routing layer and may bootstrap or campaign for leadership.</li>
 </ul>
 </li>
@@ -340,7 +340,7 @@ size/traffic heuristics.</li>
 <ul>
 <li><code>store.RegionMetrics()</code> feeds into <code>StatsSnapshot</code>, making region counts and backlog visible via expvar and <code>nokv stats</code>.</li>
 <li><code>nokv regions</code> shows the local peer catalog used for store recovery: ID, range, peers, state. It is a store-local recovery view, not cluster routing authority.</li>
-<li><code>CHAOS_TRACE_METRICS=1 go test -run 'TestGRPCTransport(HandlesPartition|MetricsWatchdog|MetricsBlockedPeers)' -count=1 -v ./raftstore/transport</code> exercises transport metrics under faults; <code>scripts/run_local_cluster.sh</code> spins up multi-node clusters for manual inspection.</li>
+<li><code>CHAOS_TRACE_METRICS=1 go test -run 'TestGRPCTransport(HandlesPartition|MetricsWatchdog|MetricsBlockedPeers)' -count=1 -v ./raftstore/transport</code> exercises transport metrics under faults; <code>scripts/dev/cluster.sh</code> spins up multi-node clusters for manual inspection.</li>
 </ul>
 <h3 id="store-internals-at-a-glance"><a class="header" href="#store-internals-at-a-glance">Store internals at a glance</a></h3>
 <div class="table-wrapper">
@@ -363,7 +363,65 @@ size/traffic heuristics.</li>
 </table>
 </div>
 <hr>
-<h2 id="10-current-boundaries-and-guarantees"><a class="header" href="#10-current-boundaries-and-guarantees">10. Current Boundaries and Guarantees</a></h2>
+<h2 id="10-region-truth-and-persistence-roles"><a class="header" href="#10-region-truth-and-persistence-roles">10. Region Truth and Persistence Roles</a></h2>
+<p>NoKV intentionally keeps three different region views, and they do not have
+equal authority:</p>
+<ol>
+<li>
+<p><strong>Store-local region truth</strong></p>
+<ul>
+<li>Advanced only through raft apply paths and bootstrap/restart loading.</li>
+<li>Owned by <a href="../raftstore/store/region_manager.go"><code>region_manager.go</code></a> via:
+<ul>
+<li><code>applyRegionMeta</code></li>
+<li><code>applyRegionState</code></li>
+<li><code>applyRegionRemoval</code></li>
+<li><code>loadBootstrapSnapshot</code></li>
+</ul>
+</li>
+<li>This is the runtime source of truth for what a store currently hosts.</li>
+</ul>
+</li>
+<li>
+<p><strong>Store-local persistent mirror</strong></p>
+<ul>
+<li>Owned by <a href="../raftstore/meta"><code>raftstore/meta</code></a>.</li>
+<li>Persists:
+<ul>
+<li>local region catalog entries for restart</li>
+<li>local raft WAL replay checkpoints</li>
+</ul>
+</li>
+<li>This mirror exists for local recovery only. It is not cluster routing
+authority and must not be treated as consensus truth outside the store.</li>
+</ul>
+</li>
+<li>
+<p><strong>PD control-plane view</strong></p>
+<ul>
+<li>Owned by PD and persisted through <a href="../pd/storage"><code>pd/storage</code></a>.</li>
+<li>Built from region/store heartbeats and allocator durability checkpoints.</li>
+<li>Used for:
+<ul>
+<li>route lookup</li>
+<li>scheduler decisions</li>
+<li>allocator durability</li>
+</ul>
+</li>
+<li>PD is not allowed to overwrite local raftstore truth directly.</li>
+</ul>
+</li>
+</ol>
+<p>The resulting rule is simple:</p>
+<ul>
+<li><code>raft apply/bootstrap</code> advances local truth</li>
+<li><code>raftstore/meta</code> mirrors that truth for restart</li>
+<li><code>PD</code> observes and schedules from heartbeats</li>
+</ul>
+<p>This separation is what prevents parallel truth sources from creeping back into
+the design.</p>
+<hr>
+<h2 id="11-current-boundaries-and-guarantees"><a class="header" href="#11-current-boundaries-and-guarantees">11. Current Boundaries and Guarantees</a></h2>
 <ul>
 <li>Reads served through <code>ReadCommand</code> are leader-strong and pass a Raft
 linearizability barrier (<code>LinearizableRead</code> + <code>WaitApplied</code>).</li>
@@ -426,6 +484,7 @@ count, backlog, and scheduling health.</li>
         <script src="book-a0b12cfe.js"></script>
 
         <!-- Custom JS scripts -->
+        <script src="docs/custom-732fa610.js"></script>
         <script src="docs/mermaid-init-8a66ee6c.js"></script>
 
 

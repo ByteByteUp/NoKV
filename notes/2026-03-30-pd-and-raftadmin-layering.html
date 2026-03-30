@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Recovery - NoKV Docs</title>
+        <title>2026-03-30 PD and RaftAdmin Layering - NoKV Docs</title>
 
 
         <!-- Custom HTML head -->
@@ -12,34 +12,34 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
-        <link rel="icon" href="favicon-de23e50b.svg">
-        <link rel="shortcut icon" href="favicon-8114d1fc.png">
-        <link rel="stylesheet" href="css/variables-8adf115d.css">
-        <link rel="stylesheet" href="css/general-2459343d.css">
-        <link rel="stylesheet" href="css/chrome-ae938929.css">
-        <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-2459343d.css">
+        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
 
         <!-- Fonts -->
-        <link rel="stylesheet" href="fonts/fonts-9644e21d.css">
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
 
         <!-- Highlight.js Stylesheets -->
-        <link rel="stylesheet" id="mdbook-highlight-css" href="highlight-493f70e1.css">
-        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="tomorrow-night-4c0ae647.css">
-        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
-        <link rel="stylesheet" href="docs/custom-5230762e.css">
+        <link rel="stylesheet" href="../docs/custom-5230762e.css">
 
 
         <!-- Provide site root and default themes to javascript -->
         <script>
-            const path_to_root = "";
+            const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-81b84921.js";
+            window.path_to_searchindex_js = "../searchindex-81b84921.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-af56fb0e.js"></script>
+        <script src="../toc-af56fb0e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -106,7 +106,7 @@
             <!-- populated by js -->
             <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
             <noscript>
-                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
             </noscript>
             <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
@@ -141,7 +141,7 @@
                     <h1 class="menu-title">NoKV Docs</h1>
 
                     <div class="right-buttons">
-                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
                             <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
                         </a>
                         <a href="https://github.com/feichai0017/NoKV" title="Git repository" aria-label="Git repository">
@@ -178,99 +178,115 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="crash-recovery-playbook"><a class="header" href="#crash-recovery-playbook">Crash Recovery Playbook</a></h1>
-<p>This document describes how NoKV restores state after abnormal exit, and which tests validate each recovery contract.</p>
+                        <h1 id="2026-03-30-为什么-pd-和-raftadmin-不能混成一层"><a class="header" href="#2026-03-30-为什么-pd-和-raftadmin-不能混成一层">2026-03-30 为什么 PD 和 RaftAdmin 不能混成一层</a></h1>
+<p>这篇记录当前 <code>PD</code> 与 <code>RaftAdmin</code> 的职责边界。这个边界看起来像“小命名问题”，实际上直接影响整个分布式系统的真相源和控制流是否会变脏。</p>
 <hr>
-<h2 id="1-recovery-phases"><a class="header" href="#1-recovery-phases">1. Recovery Phases</a></h2>
-<pre class="mermaid">flowchart TD
-    Start[DB.Open]
-    Verify[runRecoveryChecks]
-    WalOpen[wal.Open]
-    LSM[lsm.NewLSM]
-    Manifest[manifest replay + table load]
-    WALReplay[WAL replay to memtables]
-    VLog[valueLog recover]
-    Flush[submit immutable flush backlog]
-    Stats[stats/start background loops]
-
-    Start --&gt; Verify --&gt; WalOpen --&gt; LSM --&gt; Manifest --&gt; WALReplay --&gt; VLog --&gt; Flush --&gt; Stats
-</pre>
-
+<h2 id="context"><a class="header" href="#context">Context</a></h2>
+<p>NoKV 现在同时有两层控制相关接口：</p>
+<ul>
+<li><code>pd</code></li>
+<li><code>raftstore/admin</code></li>
+</ul>
+<p>两者都和 region、membership、leader、路由有关，很容易让人产生一个问题：</p>
+<blockquote>
+<p>既然有 PD，为什么还需要 <code>RaftAdmin</code>？</p>
+</blockquote>
+<h2 id="symptom"><a class="header" href="#symptom">Symptom</a></h2>
+<p>如果边界不清楚，系统很容易滑向两种坏形态：</p>
 <ol>
-<li><strong>Pre-flight verification</strong>: <code>DB.runRecoveryChecks</code> runs <code>manifest.Verify</code>, <code>wal.VerifyDir</code>, and per-bucket <code>vlog.VerifyDir</code>.</li>
-<li><strong>WAL manager reopen</strong>: <code>wal.Open</code> reopens latest segment and rebuilds counters.</li>
-<li><strong>Manifest replay + SST load</strong>: <code>levelManager.build</code> replays manifest version and opens SST files.</li>
-<li><strong>Strict SST validation</strong>: if a manifest SST is missing or unreadable/corrupt, startup fails and manifest state is left unchanged.</li>
-<li><strong>WAL replay</strong>: <code>lsm.recovery</code> replays post-checkpoint WAL records into memtables.</li>
-<li><strong>Flush backlog restore</strong>: recovered immutable memtables are resubmitted to the flush queue.</li>
-<li><strong>ValueLog recovery</strong>: value-log managers reconcile on-disk files with manifest metadata, trim torn tails, and drop stale/orphan segments.</li>
-<li><strong>Runtime restart</strong>: metrics and periodic workers start again.</li>
+<li>
+<p><strong>PD 越界写本地 truth</strong><br>control plane 直接变成 local state 的执行者。</p>
+</li>
+<li>
+<p><strong>所有动作都塞进 store / CLI</strong><br>结果控制面、执行面、运维面全部混在一起。</p>
+</li>
 </ol>
-<hr>
-<h2 id="2-failure-scenarios--tests"><a class="header" href="#2-failure-scenarios--tests">2. Failure Scenarios &amp; Tests</a></h2>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Failure Point</th><th>Expected Recovery Behaviour</th><th>Tests</th></tr>
-</thead>
-<tbody>
-<tr><td>WAL tail truncated</td><td>Replay stops safely at truncated tail, preserving valid prefix records</td><td><code>wal/manager_test.go::TestManagerReplayHandlesTruncate</code></td></tr>
-<tr><td>Crash before memtable flush install</td><td>WAL replay restores user data not yet flushed to SST</td><td><code>db_test.go::TestRecoveryWALReplayRestoresData</code></td></tr>
-<tr><td>Manifest references missing SST</td><td>Startup removes stale manifest entry and continues</td><td><code>db_test.go::TestRecoveryCleansMissingSSTFromManifest</code></td></tr>
-<tr><td>Manifest references corrupt/unreadable SST</td><td>Startup removes stale entry and continues</td><td><code>db_test.go::TestRecoveryCleansCorruptSSTFromManifest</code></td></tr>
-<tr><td>ValueLog stale segment (manifest marked invalid)</td><td>Recovery deletes stale file from disk</td><td><code>db_test.go::TestRecoveryRemovesStaleValueLogSegment</code></td></tr>
-<tr><td>ValueLog orphan segment (disk only)</td><td>Recovery deletes orphan file not tracked by manifest</td><td><code>db_test.go::TestRecoveryRemovesOrphanValueLogSegment</code></td></tr>
-<tr><td>Manifest rewrite interrupted</td><td>Recovery keeps using CURRENT-selected manifest and data remains readable</td><td><code>db_test.go::TestRecoveryManifestRewriteCrash</code></td></tr>
-<tr><td>ValueLog contains records absent from LSM/WAL</td><td>Recovery does not replay vlog as source-of-truth</td><td><code>db_test.go::TestRecoverySkipsValueLogReplay</code></td></tr>
-</tbody>
-</table>
-</div>
-<hr>
-<h2 id="3-recovery-tooling"><a class="header" href="#3-recovery-tooling">3. Recovery Tooling</a></h2>
-<h3 id="31-targeted-tests"><a class="header" href="#31-targeted-tests">3.1 Targeted tests</a></h3>
-<pre><code class="language-bash">go test ./... -run 'Recovery|ReplayHandlesTruncate'
-</code></pre>
-<p>Set <code>RECOVERY_TRACE_METRICS=1</code> to emit <code>RECOVERY_METRIC ...</code> lines in tests.</p>
-<h3 id="32-targeted-harness-command"><a class="header" href="#32-targeted-harness-command">3.2 Targeted harness command</a></h3>
-<pre><code class="language-bash">RECOVERY_TRACE_METRICS=1 \
-go test ./... -run 'TestRecovery(RemovesStaleValueLogSegment|CleansMissingSSTFromManifest|ManifestRewriteCrash|SlowFollowerSnapshotBacklog|SnapshotExportRoundTrip|WALReplayRestoresData)' -count=1 -v
-</code></pre>
-<p>Outputs are saved under <code>artifacts/recovery/</code>.</p>
-<h3 id="33-cli-checks"><a class="header" href="#33-cli-checks">3.3 CLI checks</a></h3>
+<p>这两种都不是长期可维护的架构。</p>
+<h2 id="investigation"><a class="header" href="#investigation">Investigation</a></h2>
+<p>当前 NoKV 的分层本质上是：</p>
+<h3 id="raftadmin"><a class="header" href="#raftadmin"><code>RaftAdmin</code></a></h3>
+<p>负责：</p>
 <ul>
-<li><code>nokv manifest --workdir &lt;dir&gt;</code>: verify level files, WAL pointer, vlog metadata.</li>
-<li><code>nokv stats --workdir &lt;dir&gt;</code>: confirm flush backlog converges.</li>
-<li><code>nokv vlog --workdir &lt;dir&gt;</code>: inspect vlog segment state.</li>
+<li><code>AddPeer</code></li>
+<li><code>RemovePeer</code></li>
+<li><code>TransferLeader</code></li>
+<li><code>RegionRuntimeStatus</code></li>
 </ul>
-<hr>
-<h2 id="4-operational-signals"><a class="header" href="#4-operational-signals">4. Operational Signals</a></h2>
-<p>Watch these fields during restart:</p>
+<p>也就是：</p>
+<blockquote>
+<p><strong>leader store 上的执行面</strong></p>
+</blockquote>
+<p>它的职责是把一个明确的 membership 操作落到真实的 region leader 上。</p>
+<h3 id="pd"><a class="header" href="#pd"><code>PD</code></a></h3>
+<p>负责：</p>
 <ul>
-<li><code>flush.queue_length</code></li>
-<li><code>wal.segment_count</code></li>
-<li><code>value_log.heads</code></li>
-<li><code>value_log.segments</code></li>
-<li><code>value_log.pending_deletes</code></li>
+<li>route lookup</li>
+<li>allocator / TSO</li>
+<li>heartbeat 聚合</li>
+<li>cluster 视图</li>
+<li>未来的调度和编排</li>
 </ul>
-<p>If <code>flush.queue_length</code> remains high after replay, inspect flush worker throughput and manifest sync settings.</p>
-<hr>
-<h2 id="5-notes-on-consistency-model"><a class="header" href="#5-notes-on-consistency-model">5. Notes on Consistency Model</a></h2>
+<p>也就是：</p>
+<blockquote>
+<p><strong>cluster 级 control plane</strong></p>
+</blockquote>
+<h2 id="root-cause"><a class="header" href="#root-cause">Root cause</a></h2>
+<p>两者不能混成一层，根本原因是：</p>
+<h3 id="control-plane-不等于-execution-plane"><a class="header" href="#control-plane-不等于-execution-plane">control plane 不等于 execution plane</a></h3>
+<p>PD 最擅长的是：</p>
 <ul>
-<li>WAL + manifest remain the authoritative recovery chain for LSM state.</li>
-<li>ValueLog is reconciled/validated but is not replayed as a mutation source.</li>
-<li>In strict flush mode (<code>ManifestSync=true</code>), SST install ordering is <code>SST Sync -&gt; RenameNoReplace -&gt; SyncDir -&gt; manifest edit</code>.</li>
+<li>看全局</li>
+<li>做决策</li>
+<li>提供目录服务</li>
+<li>承担调度语义</li>
 </ul>
-<p>For deeper internals, see <a href="flush.html">flush.md</a>, <a href="manifest.html">manifest.md</a>, and <a href="wal.html">wal.md</a>.</p>
+<p>但真正执行：</p>
+<ul>
+<li>conf change</li>
+<li>leader transfer</li>
+<li>snapshot install</li>
+</ul>
+<p>这些动作的仍然是 region leader 所在的 store / peer runtime。</p>
+<p>如果让 PD 直接越过这些路径写本地 state，会有三个问题：</p>
+<ol>
+<li>本地 truth 被破坏</li>
+<li>恢复路径和正常执行路径不一致</li>
+<li>分布式错误难以收敛，因为调度器开始兼做执行器</li>
+</ol>
+<h2 id="fix"><a class="header" href="#fix">Fix</a></h2>
+<p>当前 NoKV 的正确做法是：</p>
+<ol>
+<li>保留 <code>RaftAdmin</code> 作为 execution plane。</li>
+<li>保留 <code>PD</code> 作为 control plane。</li>
+<li>未来如果要做更高级 orchestrator，也应该是：
+<ul>
+<li><code>PD</code> 决策</li>
+<li><code>RaftAdmin</code> 执行</li>
+</ul>
+</li>
+</ol>
+<p>而不是让 <code>PD</code> 直接篡改本地运行时。</p>
+<h2 id="follow-ups"><a class="header" href="#follow-ups">Follow-ups</a></h2>
+<ol>
+<li><code>RegionRuntimeStatus</code> 要保持克制<br>不要把它继续膨胀成万能 dump API。</li>
+<li><code>PD</code> 以后如果做 operator framework，应明确只编排，不直接改本地 truth。</li>
+<li>文档里应该长期强调：
+<ul>
+<li><code>PD</code> 是 control plane</li>
+<li><code>RaftAdmin</code> 是 execution plane</li>
+</ul>
+</li>
+</ol>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="migration.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../notes/2026-03-30-standalone-to-distributed-bridge.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="stats.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../notes/2026-03-30-migration-mode-and-snapshot.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -280,11 +296,11 @@ go test ./... -run 'TestRecovery(RemovesStaleValueLogSegment|CleansMissingSSTFro
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="migration.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../notes/2026-03-30-standalone-to-distributed-bridge.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="stats.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../notes/2026-03-30-migration-mode-and-snapshot.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
@@ -304,17 +320,17 @@ go test ./... -run 'TestRecovery(RemovesStaleValueLogSegment|CleansMissingSSTFro
         </script>
 
 
-        <script src="elasticlunr-ef4e11c1.min.js"></script>
-        <script src="mark-09e88c2c.min.js"></script>
-        <script src="searcher-c2a407aa.js"></script>
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-c2a407aa.js"></script>
 
-        <script src="clipboard-1626706a.min.js"></script>
-        <script src="highlight-abc7f01d.js"></script>
-        <script src="book-a0b12cfe.js"></script>
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-a0b12cfe.js"></script>
 
         <!-- Custom JS scripts -->
-        <script src="docs/custom-732fa610.js"></script>
-        <script src="docs/mermaid-init-8a66ee6c.js"></script>
+        <script src="../docs/custom-732fa610.js"></script>
+        <script src="../docs/mermaid-init-8a66ee6c.js"></script>
 
 
 

@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="">
+        <meta name="description" content="NoKV design, architecture, migration, and testing documentation.">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -28,7 +28,7 @@
         <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
-        <link rel="stylesheet" href="docs/custom-7218a61a.css">
+        <link rel="stylesheet" href="docs/custom-5230762e.css">
 
 
         <!-- Provide site root and default themes to javascript -->
@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-bd28ccbb.js";
+            window.path_to_searchindex_js = "searchindex-81b84921.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-2499ba20.js"></script>
+        <script src="toc-af56fb0e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -199,6 +199,7 @@ calling <code>NoKV.Open(opt)</code>, which now returns <code>(*DB, error)</code>
 <li><strong>Write pipeline</strong>
 <ul>
 <li><code>WriteBatchMaxCount</code>, <code>WriteBatchMaxSize</code>, <code>WriteBatchWait</code></li>
+<li><code>MaxBatchCount</code>, <code>MaxBatchSize</code></li>
 <li><code>WriteThrottleMinRate</code>, <code>WriteThrottleMaxRate</code></li>
 </ul>
 </li>
@@ -259,9 +260,21 @@ defer db.Close()
 </code></pre>
 <p>Notes:</p>
 <ul>
-<li><code>Open()</code> normalizes legacy fallback fields once at the option boundary. The
-DB and LSM layers then consume the resolved values directly instead of
-re-applying defaults internally.</li>
+<li><code>NewDefaultOptions()</code> populates concrete compaction/ingest defaults up front.
+<code>Open()</code> only backfills zero-valued legacy fields for compatibility, then the
+DB and LSM layers consume the resolved values directly.</li>
+<li><code>WriteBatchMaxCount</code>, <code>WriteBatchMaxSize</code>, <code>MaxBatchCount</code>, <code>MaxBatchSize</code>,
+<code>WriteThrottleMinRate</code>, <code>WriteThrottleMaxRate</code>, and <code>WALBufferSize</code> now also
+expose concrete defaults through <code>NewDefaultOptions()</code>. Zero remains a legacy
+unset value only for manually constructed configs.</li>
+<li>Batch knobs are split by owner:
+<ul>
+<li><code>WriteBatchMaxCount</code> / <code>WriteBatchMaxSize</code> bound commit-worker request
+coalescing.</li>
+<li><code>MaxBatchCount</code> / <code>MaxBatchSize</code> bound internal apply/rewrite batches such
+as <code>batchSet</code> and value-log GC rewrites.</li>
+</ul>
+</li>
 <li>Write slowdown is bandwidth-driven: <code>WriteThrottleMaxRate</code> applies when
 slowdown first becomes active, and pressure lowers the target rate toward
 <code>WriteThrottleMinRate</code> as compaction debt approaches the stop threshold.</li>
@@ -362,7 +375,7 @@ if err := cfg.Validate(); err != nil { /* handle */ }
 </code></pre>
 <p>Related tools:</p>
 <ul>
-<li><code>scripts/run_local_cluster.sh --config raft_config.example.json</code></li>
+<li><code>scripts/dev/cluster.sh --config raft_config.example.json</code></li>
 <li><code>go run ./cmd/nokv-redis --raft-config raft_config.example.json</code></li>
 </ul>
 
@@ -417,6 +430,7 @@ if err := cfg.Validate(); err != nil { /* handle */ }
         <script src="book-a0b12cfe.js"></script>
 
         <!-- Custom JS scripts -->
+        <script src="docs/custom-732fa610.js"></script>
         <script src="docs/mermaid-init-8a66ee6c.js"></script>
 
 

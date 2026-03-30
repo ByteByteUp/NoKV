@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="">
+        <meta name="description" content="NoKV design, architecture, migration, and testing documentation.">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -28,7 +28,7 @@
         <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
-        <link rel="stylesheet" href="docs/custom-7218a61a.css">
+        <link rel="stylesheet" href="docs/custom-5230762e.css">
 
 
         <!-- Provide site root and default themes to javascript -->
@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-bd28ccbb.js";
+            window.path_to_searchindex_js = "searchindex-81b84921.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-2499ba20.js"></script>
+        <script src="toc-af56fb0e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -213,10 +213,11 @@ routing source of truth.</p>
 </ul>
 <hr>
 <h2 id="3-persistence---workdir"><a class="header" href="#3-persistence---workdir">3. Persistence (<code>--workdir</code>)</a></h2>
-<p>When <code>--workdir</code> is provided, PD-lite persists control-plane state:</p>
+<p>When <code>--workdir</code> is provided, PD-lite persists control-plane state in
+<code>PD_STATE.json</code>:</p>
 <ul>
-<li><strong>Region catalog</strong> via manifest edits.</li>
-<li><strong>Allocator checkpoints</strong> via <code>PD_STATE.json</code>:
+<li><strong>Region catalog</strong> for route recovery.</li>
+<li><strong>Allocator checkpoints</strong>:
 <ul>
 <li><code>id_current</code></li>
 <li><code>ts_current</code></li>
@@ -231,6 +232,19 @@ routing source of truth.</p>
 <li>Replay region snapshot into <code>pd/core.Cluster</code>.</li>
 </ol>
 <p>This avoids allocator rollback after restart and keeps route metadata stable.</p>
+<h3 id="region-truth-hierarchy"><a class="header" href="#region-truth-hierarchy">Region Truth Hierarchy</a></h3>
+<p>NoKV intentionally keeps three region views with different authority:</p>
+<ul>
+<li><strong>PD region catalog</strong>: cluster routing truth. Clients and stores must treat
+PD as the authoritative key-to-region source.</li>
+<li><strong><code>raftstore/meta</code> local catalog</strong>: store-local recovery truth. It exists so
+one store can restart hosted peers and replay raft WAL checkpoints even if
+PD is temporarily unavailable.</li>
+<li><strong><code>Store.regions</code> runtime catalog</strong>: in-memory cache/view rebuilt from local
+metadata at startup and then advanced by peer lifecycle plus raft apply.</li>
+</ul>
+<p>These layers are not interchangeable. Local metadata is recovery state, not
+cluster routing authority.</p>
 <hr>
 <h2 id="4-config-integration"><a class="header" href="#4-config-integration">4. Config Integration</a></h2>
 <p><code>raft_config.json</code> supports PD endpoint + workdir defaults:</p>
@@ -294,6 +308,15 @@ routing source of truth.</p>
 <li>Sufficient for local clusters, testing, and architecture iteration.</li>
 <li>API shape intentionally aligned with a PD-style control plane so migration to
 stronger HA semantics is incremental.</li>
+<li>PD persistence is intentionally limited to control-plane state:
+<ul>
+<li>region catalog snapshots learned from heartbeats</li>
+<li>allocator durability (<code>AllocID</code>, <code>TSO</code>)</li>
+</ul>
+</li>
+<li>PD is not the durable owner of a store’s local raft/region truth. Store
+restart truth remains in <code>raftstore/meta</code>, while PD keeps the routing and
+scheduling view.</li>
 </ul>
 <hr>
 <h2 id="8-current-limitations--next-steps"><a class="header" href="#8-current-limitations--next-steps">8. Current Limitations / Next Steps</a></h2>
@@ -312,7 +335,7 @@ stronger HA semantics is incremental.</li>
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="recovery.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="migration.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -326,7 +349,7 @@ stronger HA semantics is incremental.</li>
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="recovery.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="migration.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
@@ -355,6 +378,7 @@ stronger HA semantics is incremental.</li>
         <script src="book-a0b12cfe.js"></script>
 
         <!-- Custom JS scripts -->
+        <script src="docs/custom-732fa610.js"></script>
         <script src="docs/mermaid-init-8a66ee6c.js"></script>
 
 
